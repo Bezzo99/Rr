@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-clear
+export DEBIAN_FRONTEND=noninteractive
 
 GREEN='\033[1;32m'
 CYAN='\033[1;36m'
@@ -29,37 +29,82 @@ show_banner() {
 ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝
 EOF
   echo -e "${NC}"
-  echo -e "${CYAN}=========================================${NC}"
-  echo -e "${WHITE}      AUTO INSTALLER RDP - NOVAN STORE${NC}"
-  echo -e "${CYAN}=========================================${NC}"
+  echo -e "${CYAN}===========================================${NC}"
+  echo -e "${WHITE}       AUTO INSTALLER RDP - NOVAN STORE${NC}"
+  echo -e "${CYAN}===========================================${NC}"
   echo
+}
+
+show_progress() {
+  local percent=$1
+  local width=30
+  local filled=$((percent * width / 100))
+  local empty=$((width - filled))
+
+  printf "\r${YELLOW}Setup process:${NC} ["
+  printf "%${filled}s" "" | tr ' ' '#'
+  printf "%${empty}s" "" | tr ' ' '.'
+  printf "] ${GREEN}%d%%%b" "$percent" "${NC}"
+}
+
+finish_progress() {
+  show_progress 100
+  echo
+}
+
+run_quiet() {
+  "$@" >/dev/null 2>&1
 }
 
 install_requirements() {
   echo -e "${YELLOW}[*] Mengecek dependency...${NC}"
+  show_progress 5
+
+  if ! command -v curl >/dev/null 2>&1; then
+    run_quiet apt-get update -y
+    run_quiet apt-get install -y curl
+  fi
 
   if ! command -v docker >/dev/null 2>&1; then
     echo -e "${YELLOW}[*] Docker belum ada, menginstall Docker...${NC}"
-    apt-get update -y
-    apt-get install -y curl ca-certificates gnupg lsb-release
+
+    show_progress 10
+    run_quiet apt-get update -y
+
+    show_progress 20
+    run_quiet apt-get install -y ca-certificates gnupg lsb-release apt-transport-https software-properties-common
+
+    show_progress 35
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+    show_progress 45
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg >/dev/null 2>&1 || true
     chmod a+r /etc/apt/keyrings/docker.gpg
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+
+    show_progress 55
+    . /etc/os-release
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
       > /etc/apt/sources.list.d/docker.list
-    apt-get update -y
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    systemctl enable docker
-    systemctl start docker
+
+    show_progress 65
+    run_quiet apt-get update -y
+
+    show_progress 80
+    run_quiet apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    show_progress 90
+    run_quiet systemctl enable docker
+    run_quiet systemctl start docker
+  else
+    show_progress 80
+    if ! docker compose version >/dev/null 2>&1; then
+      run_quiet apt-get update -y
+      run_quiet apt-get install -y docker-compose-plugin
+    fi
+    show_progress 95
   fi
 
-  if ! docker compose version >/dev/null 2>&1; then
-    echo -e "${RED}[!] Docker Compose plugin tidak tersedia.${NC}"
-    exit 1
-  fi
-
+  finish_progress
   echo -e "${GREEN}[✓] Dependency siap.${NC}"
   echo
 }
@@ -67,33 +112,33 @@ install_requirements() {
 check_kvm() {
   if [ ! -e /dev/kvm ]; then
     echo -e "${RED}[!] /dev/kvm tidak ditemukan.${NC}"
-    echo -e "${YELLOW}[!] VPS kamu kemungkinan tidak support virtualisasi KVM.${NC}"
+    echo -e "${YELLOW}[!] VPS kemungkinan tidak support KVM.${NC}"
     echo -e "${YELLOW}[!] Script tetap lanjut, tapi Windows bisa gagal jalan.${NC}"
     echo
-    sleep 3
+    sleep 2
   fi
 }
 
 show_menu() {
-  echo -e "${CYAN}+----+------------------------+${NC}"
-  echo -e "${CYAN}| No | Version                |${NC}"
-  echo -e "${CYAN}+----+------------------------+${NC}"
-  echo -e "${WHITE}|  1 | Windows 11 Pro         |${NC}"
-  echo -e "${WHITE}|  2 | Windows 11 Enterprise  |${NC}"
-  echo -e "${WHITE}|  3 | Windows 10 Pro         |${NC}"
-  echo -e "${WHITE}|  4 | Windows 10 LTSC        |${NC}"
-  echo -e "${WHITE}|  5 | Windows 10 Enterprise  |${NC}"
-  echo -e "${WHITE}|  6 | Windows 8.1 Pro        |${NC}"
-  echo -e "${WHITE}|  7 | Windows 8.1 Enterprise |${NC}"
-  echo -e "${WHITE}|  8 | Windows 7 Enterprise   |${NC}"
-  echo -e "${WHITE}|  9 | Windows Vista Ultimate |${NC}"
-  echo -e "${WHITE}| 10 | Windows XP Professional|${NC}"
-  echo -e "${WHITE}| 11 | Windows Server 2022    |${NC}"
-  echo -e "${WHITE}| 12 | Windows Server 2019    |${NC}"
-  echo -e "${WHITE}| 13 | Windows Server 2016    |${NC}"
-  echo -e "${WHITE}| 14 | Windows Server 2012    |${NC}"
-  echo -e "${WHITE}| 15 | Windows Server 2008    |${NC}"
-  echo -e "${CYAN}+----+------------------------+${NC}"
+  echo -e "${CYAN}+----+-------------------------+${NC}"
+  echo -e "${CYAN}| No | Version                 |${NC}"
+  echo -e "${CYAN}+----+-------------------------+${NC}"
+  echo -e "${WHITE}|  1 | Windows 11 Pro          |${NC}"
+  echo -e "${WHITE}|  2 | Windows 11 Enterprise   |${NC}"
+  echo -e "${WHITE}|  3 | Windows 10 Pro          |${NC}"
+  echo -e "${WHITE}|  4 | Windows 10 LTSC         |${NC}"
+  echo -e "${WHITE}|  5 | Windows 10 Enterprise   |${NC}"
+  echo -e "${WHITE}|  6 | Windows 8.1 Pro         |${NC}"
+  echo -e "${WHITE}|  7 | Windows 8.1 Enterprise  |${NC}"
+  echo -e "${WHITE}|  8 | Windows 7 Enterprise    |${NC}"
+  echo -e "${WHITE}|  9 | Windows Vista Ultimate  |${NC}"
+  echo -e "${WHITE}| 10 | Windows XP Professional |${NC}"
+  echo -e "${WHITE}| 11 | Windows Server 2022     |${NC}"
+  echo -e "${WHITE}| 12 | Windows Server 2019     |${NC}"
+  echo -e "${WHITE}| 13 | Windows Server 2016     |${NC}"
+  echo -e "${WHITE}| 14 | Windows Server 2012     |${NC}"
+  echo -e "${WHITE}| 15 | Windows Server 2008     |${NC}"
+  echo -e "${CYAN}+----+-------------------------+${NC}"
   echo
 }
 
@@ -139,7 +184,7 @@ ask_config() {
 }
 
 make_compose() {
-  mkdir -p /root/novan-store
+  mkdir -p /root/novan-store/windows
   cd /root/novan-store
 
   cat > compose.yml <<EOF
@@ -172,24 +217,36 @@ EOF
 
 run_container() {
   cd /root/novan-store
+
+  echo
+  echo -e "${YELLOW}[*] Menjalankan container Windows...${NC}"
+
+  show_progress 20
   docker compose down >/dev/null 2>&1 || true
-  docker compose up -d
+
+  show_progress 40
+  docker compose pull >/dev/null 2>&1 || true
+
+  show_progress 75
+  docker compose up -d >/dev/null 2>&1
+
+  finish_progress
 }
 
 show_result() {
   IP_ADDR=$(hostname -I | awk '{print $1}')
 
   echo
-  echo -e "${GREEN}=========================================${NC}"
-  echo -e "${GREEN}           INSTALL SELESAI${NC}"
-  echo -e "${GREEN}=========================================${NC}"
+  echo -e "${GREEN}===========================================${NC}"
+  echo -e "${GREEN}              INSTALL SELESAI${NC}"
+  echo -e "${GREEN}===========================================${NC}"
   echo -e "${WHITE}IP VPS     : ${YELLOW}${IP_ADDR}${NC}"
   echo -e "${WHITE}Web Viewer : ${YELLOW}http://${IP_ADDR}:8006${NC}"
   echo -e "${WHITE}RDP Host   : ${YELLOW}${IP_ADDR}:3389${NC}"
   echo -e "${WHITE}Username   : ${YELLOW}${USERNAME}${NC}"
   echo -e "${WHITE}Password   : ${YELLOW}${PASSWORD}${NC}"
   echo -e "${WHITE}Folder     : ${YELLOW}/root/novan-store${NC}"
-  echo -e "${GREEN}=========================================${NC}"
+  echo -e "${GREEN}===========================================${NC}"
 }
 
 main() {
@@ -205,9 +262,6 @@ main() {
   pick_version
   ask_config
   make_compose
-
-  echo
-  echo -e "${YELLOW}[*] Menjalankan container Windows...${NC}"
   run_container
   show_result
 }
