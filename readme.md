@@ -1,6 +1,6 @@
 <h1 align="center">Windows<br />
 <div align="center">
-<a href="https://github.com/Bezzo99/Rr"><img src="https://github.com/Bezzo99/Rr/raw/master/.github/logo.png" title="Logo" style="max-width:100%;" width="128" /></a>
+<a href="https://github.com/Bezzo99/Rr"><img src="https://github.com/Bezzo99/Rr/raw/main/.github/logo.png" title="Logo" style="max-width:100%;" width="128" /></a>
 </div>
 <div align="center">
 
@@ -59,7 +59,7 @@ docker run -it --rm --name windows -e "VERSION=11" -p 8006:8006 --device=/dev/kv
 ##### Via Kubernetes:
 
 ```shell
-kubectl apply -f https://raw.githubusercontent.com/dockur/windows/refs/heads/master/kubernetes.yml
+kubectl apply -f https://raw.githubusercontent.com/Bezzo99/Rr/refs/heads/main/kubernetes.yml
 ```
 
 ##### Via Github Codespaces:
@@ -392,10 +392,10 @@ kubectl apply -f https://raw.githubusercontent.com/dockur/windows/refs/heads/mas
 [build_url]: https://github.com/Bezzo99/Rr/
 [hub_url]: https://hub.docker.com/r/bezzo99/rr/
 [tag_url]: https://hub.docker.com/r/bezzo99/rr/tags
-[pkg_url]: https://github.com/Bezzo99/Rr/pkgs/container/Rr
+[pkg_url]: https://github.com/Bezzo99/Rr/pkgs/container/windows
 
 [Build]: https://github.com/Bezzo99/Rr/actions/workflows/build.yml/badge.svg
 [Size]: https://img.shields.io/docker/image-size/bezzo99/rr/latest?color=066da5&label=size
 [Pulls]: https://img.shields.io/docker/pulls/bezzo99/rr.svg?style=flat&label=pulls&logo=docker
 [Version]: https://img.shields.io/docker/v/bezzo99/rr/latest?arch=amd64&sort=semver&color=066da5
-[Package]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fipitio.github.io%2Fbackage%2Fdockur%2Fwindows%2Fwindows.json&query=%24.downloads&logo=github&style=flat&color=066da5&label=pulls
+[Package]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fipitio.github.io%2Fbackage%2FBezzo99%2FRr%2Frr.json&query=%24.downloads&logo=github&style=flat&color=066da5&label=pulls
