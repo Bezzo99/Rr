@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -13,6 +13,7 @@ APP_DIR='/root/novan-store'
 COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 CONTAINER_NAME='novan-store-rdp'
 IMAGE_NAME='dockurr/windows'
+LOG_FILE='/tmp/novan-store-install.log'
 
 show_banner() {
   clear || true
@@ -56,20 +57,24 @@ finish_progress() {
   echo
 }
 
+log() {
+  echo -e "$*" | tee -a "$LOG_FILE"
+}
+
 run_quiet() {
-  "$@" >/dev/null 2>&1
+  "$@" >>"$LOG_FILE" 2>&1
 }
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    echo -e "${RED}[!] Jalankan script ini sebagai root.${NC}"
+    log "${RED}[!] Jalankan script ini sebagai root.${NC}"
     exit 1
   fi
 }
 
 ensure_supported_os() {
   if [ ! -f /etc/os-release ]; then
-    echo -e "${RED}[!] OS tidak dikenali.${NC}"
+    log "${RED}[!] OS tidak dikenali.${NC}"
     exit 1
   fi
 
@@ -77,27 +82,63 @@ ensure_supported_os() {
   case "${ID:-}" in
     ubuntu|debian) ;;
     *)
-      echo -e "${RED}[!] Script ini hanya mendukung Ubuntu/Debian.${NC}"
+      log "${RED}[!] Script ini hanya mendukung Ubuntu/Debian.${NC}"
       exit 1
       ;;
   esac
 }
 
+set_dynamic_defaults() {
+  local mem_gb cpu_cores disk_gb
+
+  mem_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 6)
+  cpu_cores=$(nproc 2>/dev/null || echo 4)
+  disk_gb=$(df -BG / | awk 'NR==2 {gsub(/G/,"",$4); print $4}' 2>/dev/null || echo 80)
+
+  if [ -z "$mem_gb" ] || [ "$mem_gb" -lt 4 ]; then
+    DEFAULT_RAM='4G'
+  elif [ "$mem_gb" -le 6 ]; then
+    DEFAULT_RAM="$((mem_gb - 1))G"
+  elif [ "$mem_gb" -le 8 ]; then
+    DEFAULT_RAM='6G'
+  else
+    DEFAULT_RAM="$((mem_gb - 2))G"
+  fi
+
+  if [ -z "$cpu_cores" ] || [ "$cpu_cores" -lt 2 ]; then
+    DEFAULT_CPU='2'
+  elif [ "$cpu_cores" -gt 8 ]; then
+    DEFAULT_CPU='8'
+  else
+    DEFAULT_CPU="$cpu_cores"
+  fi
+
+  if [ -z "$disk_gb" ] || [ "$disk_gb" -lt 90 ]; then
+    DEFAULT_DISK='80G'
+  else
+    local suggested=$((disk_gb - 20))
+    if [ "$suggested" -lt 80 ]; then
+      suggested=80
+    fi
+    DEFAULT_DISK="${suggested}G"
+  fi
+}
+
 install_requirements() {
-  echo -e "${YELLOW}[*] Mengecek dependency...${NC}"
+  log "${YELLOW}[*] Mengecek dependency...${NC}"
   show_progress 5
 
   run_quiet apt-get update -y
   run_quiet apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common
 
   if ! command -v docker >/dev/null 2>&1; then
-    echo -e "${YELLOW}[*] Docker belum ada, menginstall Docker...${NC}"
+    log "${YELLOW}[*] Docker belum ada, menginstall Docker...${NC}"
     show_progress 20
     install -m 0755 -d /etc/apt/keyrings
 
     show_progress 35
     rm -f /etc/apt/keyrings/docker.gpg
-    curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL "https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg >>"$LOG_FILE" 2>&1
     chmod a+r /etc/apt/keyrings/docker.gpg
 
     show_progress 50
@@ -117,7 +158,7 @@ install_requirements() {
   run_quiet systemctl restart docker
 
   finish_progress
-  echo -e "${GREEN}[✓] Dependency siap.${NC}"
+  log "${GREEN}[✓] Dependency siap.${NC}"
   echo
 }
 
@@ -129,9 +170,9 @@ check_virtualization() {
   fi
 
   if [ ! -e /dev/kvm ]; then
-    echo -e "${RED}[!] /dev/kvm tidak ditemukan.${NC}"
-    echo -e "${YELLOW}[!] VPS Anda tidak support KVM / nested virtualization.${NC}"
-    echo -e "${YELLOW}[!] Container Windows kemungkinan besar gagal boot.${NC}"
+    log "${RED}[!] /dev/kvm tidak ditemukan.${NC}"
+    log "${YELLOW}[!] VPS Anda tidak support KVM / nested virtualization.${NC}"
+    log "${YELLOW}[!] Container Windows kemungkinan besar gagal boot.${NC}"
     exit 1
   fi
 }
@@ -171,20 +212,22 @@ pick_version() {
     10) VERSION='2025' ; VERSION_LABEL='Windows Server 2025' ;;
     11) VERSION='2022' ; VERSION_LABEL='Windows Server 2022' ;;
     12) VERSION='2019' ; VERSION_LABEL='Windows Server 2019' ;;
-    *) echo -e "${RED}[!] Pilihan tidak valid.${NC}"; exit 1 ;;
+    *) log "${RED}[!] Pilihan tidak valid.${NC}"; exit 1 ;;
   esac
 }
 
 ask_config() {
   echo
-  read -rp "RAM Windows [default 6G]: " RAM_SIZE
-  RAM_SIZE="${RAM_SIZE:-6G}"
+  echo -e "${CYAN}Default disesuaikan dari spek VPS. Anda boleh ganti, misalnya 160G.${NC}"
 
-  read -rp "CPU Core [default 4]: " CPU_CORES
-  CPU_CORES="${CPU_CORES:-4}"
+  read -rp "RAM Windows [default ${DEFAULT_RAM}]: " RAM_SIZE
+  RAM_SIZE="${RAM_SIZE:-$DEFAULT_RAM}"
 
-  read -rp "Disk Size [default 80G]: " DISK_SIZE
-  DISK_SIZE="${DISK_SIZE:-80G}"
+  read -rp "CPU Core [default ${DEFAULT_CPU}]: " CPU_CORES
+  CPU_CORES="${CPU_CORES:-$DEFAULT_CPU}"
+
+  read -rp "Disk Size [default ${DEFAULT_DISK}]: " DISK_SIZE
+  DISK_SIZE="${DISK_SIZE:-$DEFAULT_DISK}"
 
   read -rp "RDP Username [default novan]: " USERNAME
   USERNAME="${USERNAME:-novan}"
@@ -193,12 +236,24 @@ ask_config() {
   PASSWORD="${PASSWORD:-novan22}"
 }
 
+normalize_sizes() {
+  RAM_SIZE=$(echo "$RAM_SIZE" | tr '[:lower:]' '[:upper:]')
+  DISK_SIZE=$(echo "$DISK_SIZE" | tr '[:lower:]' '[:upper:]')
+}
+
 validate_config() {
-  [[ "$RAM_SIZE" =~ ^[0-9]+[GgMm]$ ]] || { echo -e "${RED}[!] Format RAM harus seperti 4G atau 8192M.${NC}"; exit 1; }
-  [[ "$CPU_CORES" =~ ^[0-9]+$ ]] || { echo -e "${RED}[!] CPU Core harus angka.${NC}"; exit 1; }
-  [[ "$DISK_SIZE" =~ ^[0-9]+[GgTt]$ ]] || { echo -e "${RED}[!] Format Disk harus seperti 64G atau 1T.${NC}"; exit 1; }
-  [ -n "$USERNAME" ] || { echo -e "${RED}[!] Username tidak boleh kosong.${NC}"; exit 1; }
-  [ -n "$PASSWORD" ] || { echo -e "${RED}[!] Password tidak boleh kosong.${NC}"; exit 1; }
+  normalize_sizes
+
+  [[ "$RAM_SIZE" =~ ^[0-9]+[GM]$ ]] || { log "${RED}[!] Format RAM harus seperti 4G atau 8192M.${NC}"; exit 1; }
+  [[ "$CPU_CORES" =~ ^[0-9]+$ ]] || { log "${RED}[!] CPU Core harus angka.${NC}"; exit 1; }
+  [[ "$DISK_SIZE" =~ ^[0-9]+[GT]$ ]] || { log "${RED}[!] Format Disk harus seperti 80G, 160G, atau 1T.${NC}"; exit 1; }
+  [ -n "$USERNAME" ] || { log "${RED}[!] Username tidak boleh kosong.${NC}"; exit 1; }
+  [ -n "$PASSWORD" ] || { log "${RED}[!] Password tidak boleh kosong.${NC}"; exit 1; }
+
+  if [ "$CPU_CORES" -lt 1 ]; then
+    log "${RED}[!] CPU Core minimal 1.${NC}"
+    exit 1
+  fi
 }
 
 make_compose() {
@@ -236,23 +291,24 @@ EOF2
 run_container() {
   cd "$APP_DIR"
   echo
-  echo -e "${YELLOW}[*] Mengecek image Docker...${NC}"
+  log "${YELLOW}[*] Mengecek image Docker...${NC}"
   show_progress 15
-  docker pull "$IMAGE_NAME" >/dev/null
+  run_quiet docker pull "$IMAGE_NAME"
 
   echo
-  echo -e "${YELLOW}[*] Menjalankan container Windows...${NC}"
+  log "${YELLOW}[*] Menjalankan container Windows...${NC}"
   show_progress 35
-  docker compose -f "$COMPOSE_FILE" down >/dev/null 2>&1 || true
+  docker compose -f "$COMPOSE_FILE" down >>"$LOG_FILE" 2>&1 || true
   show_progress 60
-  docker compose -f "$COMPOSE_FILE" up -d >/dev/null
+  docker compose -f "$COMPOSE_FILE" up -d >>"$LOG_FILE" 2>&1
   show_progress 90
-  sleep 3
+  sleep 5
 
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     echo
-    echo -e "${RED}[!] Container gagal jalan.${NC}"
-    echo -e "${YELLOW}[!] Cek log dengan: docker logs ${CONTAINER_NAME}${NC}"
+    log "${RED}[!] Container gagal jalan.${NC}"
+    log "${YELLOW}[!] Cek log dengan: docker logs ${CONTAINER_NAME}${NC}"
+    log "${YELLOW}[!] Log installer: ${LOG_FILE}${NC}"
     exit 1
   fi
 
@@ -267,19 +323,25 @@ show_result() {
   echo -e "${GREEN}              INSTALL SELESAI${NC}"
   echo -e "${GREEN}===========================================${NC}"
   echo -e "${WHITE}Versi      : ${YELLOW}${VERSION_LABEL}${NC}"
+  echo -e "${WHITE}RAM        : ${YELLOW}${RAM_SIZE}${NC}"
+  echo -e "${WHITE}CPU        : ${YELLOW}${CPU_CORES} Core${NC}"
+  echo -e "${WHITE}Disk       : ${YELLOW}${DISK_SIZE}${NC}"
   echo -e "${WHITE}IP VPS     : ${YELLOW}${ip_addr}${NC}"
   echo -e "${WHITE}Web Viewer : ${YELLOW}http://${ip_addr}:8006${NC}"
   echo -e "${WHITE}RDP Host   : ${YELLOW}${ip_addr}:3389${NC}"
   echo -e "${WHITE}Username   : ${YELLOW}${USERNAME}${NC}"
   echo -e "${WHITE}Password   : ${YELLOW}${PASSWORD}${NC}"
   echo -e "${WHITE}Folder     : ${YELLOW}${APP_DIR}${NC}"
+  echo -e "${WHITE}Log        : ${YELLOW}${LOG_FILE}${NC}"
   echo -e "${GREEN}===========================================${NC}"
   echo -e "${CYAN}Buka dulu Web Viewer sampai Windows selesai boot, lalu baru login via RDP.${NC}"
 }
 
 main() {
+  : > "$LOG_FILE"
   require_root
   ensure_supported_os
+  set_dynamic_defaults
   show_banner
   install_requirements
   check_virtualization
